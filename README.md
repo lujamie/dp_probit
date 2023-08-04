@@ -1,1 +1,1 @@
-# dp_probit
+# Differentially Private Probit Regression
