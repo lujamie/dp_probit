@@ -4,8 +4,9 @@ error metric is the log likelihood of estimators
 tries different values of the privacy parameter
 '''
 
+from cmath import sqrt
 from generate_data import generate
-from mechanisms import probit_reg, gauss_mech
+from mechanisms import nondp_loglike, probit_err, privatize, run_probit
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -13,8 +14,8 @@ import matplotlib.pyplot as plt
 # initialize parameters
 K = 5   # dimensions
 N = 100000  # sample size
-num_trials = 2
-error = "PRED"  # error metric: LOG-LIKE, BETA-NORM, PRED
+num_trials = 1
+error = "PRED"  # error metric: LOG-LIKE, BETA-NORM, PRED, LOG-LIKE2
 
 # privacy parameters
 eps = np.arange(start=0.1, stop=5, step=0.1)
@@ -26,18 +27,25 @@ beta = np.random.normal(loc=0, scale=math.sqrt(math.sqrt(N)), size=K)
 def run_dp(X, y, X_test, y_test):
     dp_res = np.zeros(shape=num_eps)
     for i in range(num_eps):
-        X_priv = gauss_mech(X, N, K, eps[i], delta, sensitivity, beta)
+        X_priv = privatize(X, N, K, eps[i], delta, sensitivity, beta)
         for j in range(num_trials):
-            dp_res[i] += probit_reg(X_priv, y, error, N, K, beta, X_test, y_test)
+            if error == "LOG-LIKE2":
+                dp_res[i] += nondp_loglike(X, y, X_priv)
+            else:
+                dp_res[i] += probit_err(X_priv, y, error, N, K, beta, X_test, y_test)
         dp_res[i] /= num_trials
     return dp_res
 
 def run_nondp(X, y, X_test, y_test):
-    nondp_res = 0
-    for i in range(num_trials):
-        nondp_res += probit_reg(X, y, error, N, K, beta, X_test, y_test)
-    nondp_res /= num_trials
-    return nondp_res
+    nondp_res = []
+    m = num_trials * num_eps
+    for i in range(m):
+        if error == "LOG-LIKE2":
+            nondp_res += probit_err(X, y, "LOG-LIKE", N, K, beta, X_test, y_test)
+        else:
+            nondp_res.append(probit_err(X, y, error, N, K, beta, X_test, y_test))
+    #nondp_res /= m
+    return max(nondp_res)
 
 def run_trials():
     X, y = generate(N, K, beta)
