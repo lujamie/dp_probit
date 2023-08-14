@@ -4,7 +4,6 @@ error metric is the log likelihood of estimators
 tries different values of the privacy parameter
 '''
 
-from pexpect import run
 from generate_data import generate
 from mechanisms import predict, probit_err, privatize, run_probit
 import numpy as np
@@ -27,9 +26,9 @@ beta = np.random.normal(loc=0, scale=math.sqrt(math.sqrt(N)), size=K)
 def run_dp(X, y, X_test, y_test):
     dp_res = np.zeros(shape=num_eps)
     for i in range(num_eps):
-        X_priv = privatize(X, N, K, eps[i], delta, sensitivity, beta)
+        X_priv, y_priv = privatize(X, y, N, K, eps[i], delta, sensitivity, beta)
         for j in range(num_trials):
-            dp_res[i] += probit_err(X_priv, y, error, N, K, beta, X_test, y_test)
+            dp_res[i] += probit_err(X_priv, y_priv, error, N, K, beta, X_test, y_test)
         dp_res[i] /= num_trials
     return dp_res
 
@@ -44,9 +43,8 @@ def avg_params(X, y, eps):
     m = math.ceil(math.sqrt(N))
     sum_params = np.zeros(shape=(K, 1))
     for i in range(m):
-        X_priv = privatize(X, N, K, eps, delta, sensitivity, beta)
-        _, _, params = run_probit(X_priv, y)
-        print("params: ", params)
+        X_priv, y_priv = privatize(X, y, N, K, eps, delta, sensitivity, beta)
+        _, _, params = run_probit(X_priv, y_priv)
         sum_params += params
     avg_params = sum_params / (np.ones((K, 1)) * m)
     print("AVG PARAMS: ", avg_params)
