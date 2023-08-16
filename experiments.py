@@ -4,8 +4,9 @@ error metric is the log likelihood of estimators
 tries different values of the privacy parameter
 '''
 
-from generate_data import generate
+from generate_data import generate, torch_data
 from mechanisms import predict, probit_err, privatize, run_probit
+from sgd import dp_sgd
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ num_trials = 1
 error = "PRED"  # error metric: LOG-LIKE, BETA-NORM, PRED
 
 # privacy parameters
-eps = np.arange(start=0.1, stop=5, step=0.2)
+eps = np.arange(start=0.1, stop=2, step=0.2)
 num_eps = eps.shape[-1]
 delta = 0.1
 sensitivity = 2.0 # range that X values take
@@ -73,10 +74,28 @@ def run_trials():
     plt.style.use('dark_background')
     plt.plot(eps, dp_res, label='DP')
     plt.plot(eps, (nondp_res * np.ones(shape=num_eps)), label='non-DP')
-    plt.xlabel('espilon')
-    plt.ylabel('classification error')
-    plt.legend()
-    plt.show()
+    
 
+
+def run_dp_sgd():
+    X, y = generate(N, K, beta)
+    X_test, y_test = generate(N, K, beta)
+    train_loader = torch_data(X, y)
+    test_loader = torch_data(X_test, y_test)
+
+    central_acc = []
+
+    for i in range(num_eps):
+        central_acc.append(dp_sgd(train_loader, test_loader, eps[i], delta, central=True))
+
+    plt.plot(eps, central_acc, label='DP-SGD')
+    return central_acc
+
+central_acc = run_dp_sgd()
 run_trials()
-print("BETA:", beta)
+plt.xlabel('espilon')
+plt.ylabel('classification error')
+plt.legend()
+plt.show()
+print("DP-SGD RESULT: ", central_acc)
+# print("BETA:", beta)

@@ -8,6 +8,7 @@ import math
 import pandas as pd
 from sklearn.metrics import accuracy_score
 
+
 def predict(beta_hat, N, X_test, y_test):
     y_pred = np.empty(shape=N)
     for i in range(N):
