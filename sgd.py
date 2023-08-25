@@ -3,40 +3,35 @@ code for DP-SGD and
 running regular SGD on locally private data
 '''
 
+import math
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from opacus import PrivacyEngine
 from sklearn.metrics import accuracy_score
 
 
-class Net(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super(Net, self).__init__()
-        
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_dim, output_dim)
+class Probit(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(Probit, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim, bias=False)
         
     def forward(self, x):
-        x = x.view(-1, self.input_dim)  # Flatten the input if needed
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        return torch.sigmoid(x)
+        z = self.linear(x)
+        # rho = np.random.standard_normal()
+        # output = norm.cdf((xbeta+rho).detach().numpy())
+        #return torch.tensor(output).float()
+        return torch.sigmoid(z)
 
 class ProbitNLLLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, weights):
         super(ProbitNLLLoss, self).__init__()
+        self.weights = weights
 
     def forward(self, inputs, targets):
         # Calculate the cumulative distribution function (CDF) of a standard normal distribution
-        cdf = 0.5 * (1 + torch.erf(inputs / (2**0.5)))
+        z = torch.mul(inputs, self.weights)
+        cdf = (1/math.sqrt(2*math.pi)) * torch.exp(-(z**2)/2)
 
         # Calculate the negative log-likelihood of the Probit Model
         loss = -torch.log(cdf.clamp(min=1e-10)) * targets - torch.log((1 - cdf).clamp(min=1e-10)) * (1 - targets)
@@ -45,7 +40,8 @@ class ProbitNLLLoss(nn.Module):
 
 def train(model, train_loader, epoch, optimizer, delta, privacy_engine, device):
     model.train()
-    criterion = ProbitNLLLoss()
+    #criterion = ProbitNLLLoss(weights=model.linear.weight)
+    criterion = nn.BCELoss()
     losses = []
     for batch in train_loader:
         data = batch['data']
@@ -54,7 +50,9 @@ def train(model, train_loader, epoch, optimizer, delta, privacy_engine, device):
         optimizer.zero_grad()
         output = model(data)
         target = target.unsqueeze(1)
+        #print(f"output={output}, target={target}")
         loss = criterion(output, target)
+        #loss.requires_grad = True
         loss.backward()
         optimizer.step()
         losses.append(loss.item())
@@ -69,9 +67,10 @@ def train(model, train_loader, epoch, optimizer, delta, privacy_engine, device):
 
 def test(model, test_loader, device):
     model.eval()
-    criterion = ProbitNLLLoss()
+    #criterion = ProbitNLLLoss(weights=model.linear.weight)
+    criterion = nn.BCELoss()
     test_loss = 0
-
+    correct = 0
     all_predictions = []
     all_labels = []
     with torch.no_grad():
@@ -97,14 +96,13 @@ def test(model, test_loader, device):
     return accuracy
 
 
-def dp_sgd(train_loader, test_loader, eps, delta, central):
-    max_epochs = 2
+def dp_sgd(train_loader, test_loader, eps, delta, K, central):
+    max_epochs = 5
     max_grad_norm = 1.0
     
-    model = Net(input_dim=5, hidden_dim=2, output_dim=1).to(device="cpu")
+    model = Probit(input_dim=K, output_dim=1).to(device="cpu")
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
 
-    privacy_engine = None
     if central:
         privacy_engine = PrivacyEngine()
         model, optimizer, dataloader = privacy_engine.make_private_with_epsilon(
@@ -117,9 +115,29 @@ def dp_sgd(train_loader, test_loader, eps, delta, central):
             max_grad_norm=1.0,
         )
         print(f"Using sigma={optimizer.noise_multiplier} and C={max_grad_norm}")
+        for epoch in range(max_epochs):
+            train(model, train_loader, epoch, optimizer, delta, privacy_engine, device="cpu")
+        top_acc = test(model, test_loader, device="cpu")
+    else:
+        privacy_engine = None
 
-    for epoch in range(max_epochs):
-        train(model, train_loader, epoch, optimizer, delta, privacy_engine, device="cpu")
+        # for epoch in range(max_epochs):
+        #     train(model, train_loader, epoch, optimizer, delta, privacy_engine, device="cpu")
+        # top_acc = test(model, test_loader, device="cpu")
+
+        
+        model_dict = model.state_dict()
+        n_iter = math.ceil(math.sqrt(len(train_loader.dataset)))
+        for i in range(n_iter):
+            for epoch in range(max_epochs):
+                train(model, train_loader, epoch, optimizer, delta, privacy_engine, device="cpu")
+            new_model_dict = model.state_dict()
+            for key in model_dict:
+                model_dict[key] += new_model_dict[key]
+        for key in model_dict:
+            model_dict[key] /= n_iter
+        avg_model = Probit(input_dim=K, output_dim=1).to(device="cpu")
+        avg_model.load_state_dict(model_dict)
     
-    top_acc = test(model, test_loader, device="cpu")
+        top_acc = test(avg_model, test_loader, device="cpu")
     return top_acc
