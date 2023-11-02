@@ -1,39 +1,10 @@
 '''
-baseline mechanisms for differentially private and nonprivate probit regression
+baseline mechanisms for differential privacy
 '''
 
-from threading import local
 import numpy as np
-import statsmodels.api as smf
 import math
-import pandas as pd
 import random
-from sklearn.metrics import accuracy_score
-
-DELTA1 = 1e-5    # intermediate delta for shuffling, delta \in [0,1]
-                 # smaller values = poorer performance
-DELTA2 = 1e-5    # intermediate delta for k-composition
-
-
-def predict(beta_hat, X_test, y_test):
-    n = np.shape(y_test)[0]
-    y_pred = np.empty(shape=n)
-    for i in range(n):
-        rho = np.random.standard_normal()
-        xbeta = np.dot(X_test[i], beta_hat)
-        if xbeta + rho > 0:
-            y_pred[i] = 1
-        else:
-            y_pred[i] = 0
-    return accuracy_score(y_test, y_pred)
-
-def run_probit(X, y):
-    probit_model=smf.Probit(y,X)
-    result=probit_model.fit()
-    #print(result.summary2())
-    params = pd.DataFrame(result.params,columns={'coef'},).to_numpy()
-    #print(probit_model.hessian(params))
-    return params
 
 
 def noise_params(eps, delta, sensitivity, d):
@@ -43,20 +14,20 @@ def noise_params(eps, delta, sensitivity, d):
     return x_sigma2, y_sigma2
 
 def rr(eps, yi):
-    # wp 1-p, output true answer
-    # otherwise, output 1 or 0 with even chance
-    p = 2 / (math.exp(eps) + 1)
+    '''
+    wp e^eps / 1+ e^eps, output true answer, ow flip
+    '''
+    p = math.exp(eps) / (math.exp(eps) + 1)
     if (random.uniform(0, 1) < p):
-        if (np.random.randint(2) == 1):
-            return 1
-        else:
-            return 0
-    else:
         return yi
+    else:
+        return 1 - yi
 
 
-# add Gaussian noise to X's and y's
 def privatize(X, y, beta, x_sigma2, y_sigma2):
+    '''
+    add Gaussian noise to X's and y's
+    '''
     n = np.shape(y)[0]
     d = np.shape(X)[1]
     gamma = 1/math.sqrt(1+(x_sigma2*np.linalg.norm(np.square(beta))))
@@ -75,48 +46,30 @@ def privatize(X, y, beta, x_sigma2, y_sigma2):
 
     return X_priv, y_priv
 
-# add Gaussian noise to X's and y's
-def privatize_rr(X, y, beta, x_sigma2, eps):
+
+def privatize_rr(X, y, sigma2, eps):
+    '''
+    Gaussin noise for x's, randomized response for y's
+    eps = overall budget, so we split it in half for the y's
+    sigma2 = scale of Gaussian noise for X's (calculated with eps)
+        (must do sigma2 * 2^2 bc we're splitting eps in half)
+    '''
     n = np.shape(y)[0]
     d = np.shape(X)[1]
     
     X_priv = np.copy(X)
     y_priv = np.zeros(n)
 
+    sigma2 *= 4
+
     for i in range(n):
-        x_noise = np.random.normal(loc=0, scale=math.sqrt(x_sigma2), size=d)
+        x_noise = np.random.normal(loc=0, scale=math.sqrt(sigma2), size=d)
         X_priv[i] += x_noise
 
         y_priv[i] = rr(eps/2, y[i])
 
     return X_priv, y_priv
 
-
-# returns (ε_0, δ_0) for local randomizer using renyi dp shuffle
-def local_budget_renyi(eps, delta, n, avg:bool):
-    alpha = max(2, n / (9 * math.exp(5 * eps)))
-    print(f"alpha = {alpha}")
-    s = ((math.log(1/delta) + (alpha-1)*math.log(1-(1/alpha)) - math.log(alpha)) / (alpha - 1))
-    print(f"subtracting {s}")
-    eps_renyi = eps - ((math.log(1/delta) + (alpha-1)*math.log(1-(1/alpha)) - math.log(alpha)) / (alpha - 1))
-    print(f"ε(lambda) = {eps_renyi}")
-    delta_renyi = (1 - (1/alpha))**alpha * math.exp((alpha - 1)*(eps_renyi - eps)) / (alpha - 1)
-    print(f"δ(lambda) = {delta_renyi}")
-    if avg:
-        eps_0 = eps
-        k = math.ceil(eps_renyi / ((1/(alpha-1))*math.log(1 + math.comb(alpha, 2) * 4 * (math.exp(eps_0)-1)**2 / n)))
-        print(f"number of rounds for averaging = {k}")
-        delta_0 = max(1e-13, delta - delta_renyi) / (k*n*(math.exp(eps) + 1)*(1 + math.exp(-1 * eps_0)/2))
-        print(f"(ε_0, δ_0) for averaged trials = ({eps_0}, {delta_0})")
-    else:
-        eps_0 = math.log(math.sqrt(n * (math.exp((alpha-1)*(eps_renyi)) - 1) / (math.comb(alpha, 2) * 4)) + 1)
-        delta_0 = (max(1e-13, delta - delta_renyi)) / (n*(math.exp(eps) + 1)*(1 + math.exp(-1 * eps_0)/2))
-        k = 1
-        print(f"(ε_0, δ_0) without averaging = ({eps_0}, {delta_0})")    
-    return eps_0, delta_0, k
-
-
-local_budget_renyi(eps=5, delta=0.1, n=400, avg=False)
 
 # return sampling size
 def sample_sz(n, eps, delta):
