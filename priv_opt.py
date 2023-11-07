@@ -2,9 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability import distributions as tfd
 import numpy as np
-import pandas as pd
 import math
-import matplotlib.pyplot as plt
 
 dtype = tf.float32
 

@@ -9,7 +9,7 @@ from probit import predict, run_probit
 from mechanisms import noise_params, privatize, privatize_rr
 from localbudget import binary_search, compose
 from priv_opt import optimize, optimize_rr
-from sgd import dp_sgd
+#from sgd import dp_sgd
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -127,18 +127,18 @@ def run_binsearch_compose(X, y, X_test, y_test, num_iter):
     return binres
 
 
-def run_dp_sgd():
-    X, y = generate(N, d, beta)
-    X_test, y_test = generate(N, d, beta)
-    train_loader = torch_data(X, y)
-    test_loader = torch_data(X_test, y_test)
+# def run_dp_sgd():
+#     X, y = generate(N, d, beta)
+#     X_test, y_test = generate(N, d, beta)
+#     train_loader = torch_data(X, y)
+#     test_loader = torch_data(X_test, y_test)
 
-    central_acc = []
-    for i in range(num_eps):
-        central_acc.append(dp_sgd(train_loader, test_loader, eps[i], delta, d, central=True))
+#     central_acc = []
+#     for i in range(num_eps):
+#         central_acc.append(dp_sgd(train_loader, test_loader, eps[i], delta, d, central=True))
 
-    plt.plot(eps, central_acc, label='DP-SGD')
-    return central_acc
+#     plt.plot(eps, central_acc, label='DP-SGD')
+#     return central_acc
 
 
 
