@@ -96,7 +96,7 @@ def run_fixed_noise(X, y, X_test, y_test, sigma2, py):
     return score
     
 # Define parameters
-N = np.arange(start=10000, stop=60000, step=10000)
+N = np.arange(start=10000, stop=60000, step=20000)
 D = [5, 10, 25]
 sigma2 = np.arange(start=0, stop=1, step=0.1)[::-1] # reversed [1, 0.9,..., 0.1, 0]
 py = math.exp(2) / (1 + math.exp(2)) # fixing epsilon_y = 2
@@ -116,25 +116,27 @@ for n in N:
         X_test, y_test = generate(n, d, beta)
         
         scores = []
-        sigma2 = 3
+        sigma2 = 2.8
         min_sigma2 = 0
         while sigma2 >= 0: 
             score = 0
             for i in range(num_trials):
                 score += run_fixed_noise(X, y, X_test, y_test, sigma2, py)
             score /= num_trials
-            if score > 0.6: # benchmark score
+            if score > 0.8: # benchmark score
                 min_sigma2 = sigma2
+                scores.append(score)
+                break
             sigma2 -= 0.2
             scores.append(score)
         print(f"(n, d) = ({np.shape(y)[0]}, {d}), scores = {scores}")
         min_noise[(n, d)] = min_sigma2
         results[(n, d)] = scores
         
-        ax = fig.add_subplot(6,3,idx)
+        ax = fig.add_subplot(3,3,idx)
         idx += 1
         ax.title(f"n = {N}, d = {d}, min_sigma2 = {min_sigma2}")
-        ax.plot(np.arange(0, 1, 0.1), scores)
+        ax.plot(np.arange(min_sigma2, 2.8, 0.2), scores)
         ax.xlabel('Gaussian noise σ^2')
         ax.ylabel('Classification error')
 
