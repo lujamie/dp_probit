@@ -7,9 +7,33 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 from opacus import PrivacyEngine
 from sklearn.metrics import accuracy_score
 
+class CustomDataset(Dataset):
+    def __init__(self, data, labels):
+        self.data = data.clone().detach().float()
+        self.labels = labels.clone().detach().float()
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        sample = {
+            'data': self.data[idx],
+            'label': self.labels[idx]
+        }
+        return sample
+
+
+def torch_data(X, y):
+    bat_size = 1
+    X_tensor = torch.from_numpy(X)
+    y_tensor = torch.from_numpy(y)
+    TD = CustomDataset(X_tensor, y_tensor)
+    data_loader = DataLoader(TD, batch_size=bat_size, shuffle=True)
+    return data_loader
 
 class Probit(nn.Module):
     def __init__(self, input_dim, output_dim):

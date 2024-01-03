@@ -139,5 +139,3 @@ def run_fixed_noise():
 
     print(f"scores: {results}")
     print(f"min sigmas: {max_noise}")
-
-run_fixed_noise()
