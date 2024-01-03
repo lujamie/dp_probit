@@ -6,15 +6,13 @@ tries different values of the privacy parameter
 
 from generate_data import generate
 from probit import predict, run_probit
-from mechanisms import noise_params, privatize_rr
-from priv_opt import optimize_rr, optimize_xi
-from constrained_opt import get_beta
+from mechanisms import noise_param, privatize
+from priv_opt import optimize_rr, optimize_scipy
 import numpy as np
 import math
 import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
 import pandas as pd
-import random
 
 # initialize parameters
 d = 5   # dimensions
@@ -22,7 +20,7 @@ d = 5   # dimensions
 num_trials = 2
 
 # privacy parameters
-eps = np.arange(start=260, stop=300, step=10)    # overall epsilon values after shuffling
+eps = np.arange(start=0.1, stop=5, step=0.5)    # overall epsilon values after shuffling
 num_eps = eps.shape[-1]
 sensitivity = 2.0 # range that X values take
 
@@ -30,27 +28,26 @@ sensitivity = 2.0 # range that X values take
 # regular Probit regression
 def run_nondp(X, y, X_test, y_test):
     nondp_res = []
-    m = num_eps
+    m = 8 #num_trials
     for i in range(m):
         params = run_probit(X, y)
         nondp_res.append(predict(params, X_test, y_test))
     return max(nondp_res)
 
-def dp_noshuffle(X, y, X_test, y_test, d, prob:bool):
+def dp_noshuffle(X, y, X_test, y_test, probit:bool):
     dp_res = []
     n = np.shape(y)[0]
     delta = 1/n
     for e in eps:
-        x_sigma2, y_sigma2 = noise_params(e, delta, sensitivity, d)
-        X_priv, y_priv = privatize_rr(X, y, x_sigma2, e)
+        x_sigma2 = 0
+        py = noise_param(e, delta, sensitivity, d, var="y")
+        X_priv, y_priv = privatize(X, y, x_sigma2, py)
         score = 0
         for i in range(num_trials):
-            if prob:
+            if probit:
                 params = run_probit(X_priv, y_priv)
             else:
-                params = optimize_rr(X_priv, y_priv, math.sqrt(y_sigma2), x_sigma2)
-            gamma = 1/math.sqrt(1+(x_sigma2*np.square(np.linalg.norm(params))))
-            p = math.exp(e) / (math.exp(e) + 1)
+                params = optimize_rr(X_priv, y_priv, py, x_sigma2)
             score += predict(params, X_test, y_test)
         score /= num_trials
         print(f"n = {np.shape(y)[0]}, d = {d}, eps = {e}, delta = {delta}, score = {score}")
@@ -62,60 +59,46 @@ def run_dp_noshuffle():
     beta = np.random.normal(loc=0, scale=math.sqrt(math.sqrt(n)), size=d)
     X, y = generate(n, d, beta)
     X_test, y_test = generate(n, d, beta)
-    res = dp_noshuffle(X, y, X_test, y_test, d, prob=True)
-    plt.plot(eps, res, label="DP")
+    prob_res = dp_noshuffle(X, y, X_test, y_test, probit=True)
+    dp_res = dp_noshuffle(X, y, X_test, y_test, probit=False)
+    print("beta:", beta)
+    plt.plot(eps, prob_res, label="Probit")
+    plt.plot(eps, dp_res, label="Gaussian")
+    plt.xlabel("epsilon")
+    plt.ylabel("classification rate")
+    plt.title(f"n = {n}, d = {d}, delta = {1/n}")
+    plt.legend()
     plt.show()
     
 
-# def run_dp_x(X, y, X_test, y_test, beta, d):
-#     dp_res = []
-#     for e in eps:
-#         x_sigma2, _ = noise_params(e, delta, sensitivity, d)
-#         X_priv, _ = privatize(X, y, beta, x_sigma2, 0)
-#         params = optimize_x(X_priv, y, x_sigma2)
-#         score = predict(params, X_test, y_test)
-#         print(f"eps = {e}, delta = {delta}, score = {score}")
-#         dp_res.append(score)
-#     return dp_res
-
-def rr(py, yi):
-    '''
-    with probability py, output yi, otherwise flip
-    '''
-    if (random.uniform(0, 1) < py):
-        return yi
-    else:
-        return 1 - yi
-
-def priv_rr(X, y, sigma2, py):
-    '''
-    gaussian noise for x's, randomized response for y's
-    sigma2 = scale of gaussian noise
-    py = probability that we output true y
-    '''
-    n = np.shape(y)[0]
-    d = np.shape(X)[1]
-    
-    X_priv = np.copy(X)
-    y_priv = np.zeros(n)
-
-    for i in range(n):
-        x_noise = np.random.normal(loc=0, scale=math.sqrt(sigma2), size=d)
-        X_priv[i] += x_noise
-
-        y_priv[i] = rr(py, y[i])
-
-    return X_priv, y_priv
-    
-
-def fixed_noise(X, y, X_test, y_test, sigma2, py):
-    X_priv, y_priv = priv_rr(X, y, sigma2, py)
-    xi = optimize_xi(X_priv, y_priv, py, sigma2)
-    #gamma = 1/math.sqrt(1+(sigma2*np.square(np.linalg.norm(params))))
-    betah = get_beta(xi, sigma2)
-    score = predict(betah, X_test, y_test)
-    print(f"n = {np.shape(y)[0]}, d = {d}, sigma2 = {sigma2}, py = {py}, score = {score}")
+def fixed_noise(X_priv, y_priv, X_test, y_test, sigma2, py):
+    param = optimize_scipy(X_priv, y_priv, py, sigma2)
+    score = predict(param, X_test, y_test)
+    print(f"n = {np.shape(y_priv)[0]}, d = {d}, sigma2 = {sigma2}, py = {py}, score = {score}")
     return score
+
+def run_no_noise():
+    n = 400
+    d = 1
+    num_trials = 8
+    sigma2 = 1
+    py = 1
+    #beta = np.random.normal(loc=0, scale=math.sqrt(math.sqrt(n)), size=d)
+    beta = 5.0
+    X, y = generate(n, d, beta)
+    X_priv, y_priv = privatize_rr_fixed(X, y, sigma2, py)
+    if np.array_equal(X, X_priv) and np.array_equal(y, y_priv):
+        print("no noise added")
+    else:
+        print("no noise failed")
+        #return
+    X_test, y_test = generate(n, d, beta)
+    nondp_score = run_nondp(X_priv, y_priv, X_test, y_test)
+    score = 0
+    for i in range(num_trials):
+        score += fixed_noise(X_priv, y_priv, X_test, y_test, sigma2, py)
+    score /= num_trials
+    print(f"dp score = {score}, nondp score = {nondp_score}")
     
 def run_fixed_noise():
     # Define parameters
@@ -189,4 +172,4 @@ def run_grad_check():
     df.to_csv("grad.csv")
 
 
-run_fixed_noise()
+run_dp_noshuffle()
